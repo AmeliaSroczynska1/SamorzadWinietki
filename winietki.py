@@ -4,85 +4,92 @@ from reportlab.lib.colors import CMYKColor
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from PyPDF2 import PdfReader, PdfWriter
-import os
+from pathlib import Path
+from typing import List, Tuple
 
-# Ścieżki do plików
-csv_file = r"C:\Users\ameli\Desktop\winietki\winietki.csv"                        # Tu wpisać swoje scieżki
-background_pdf = r"C:\Users\ameli\Desktop\winietki\template.pdf"
-font_path = r"C:\Users\ameli\Desktop\winietki\tan-pearl.ttf"
-output_folder = r"C:\Users\ameli\Desktop\winietki"
+# Stałe
+CSV_FILE = Path(r"C:\Users\ameli\Documents\Inventor Interoperability\Github\Samorzad_Winietki\winietki.csv")
+BACKGROUND_PDF = Path(r"C:\Users\ameli\Documents\Inventor Interoperability\Github\Samorzad_Winietki\template.pdf")
+FONT_PATH = Path(r"C:\Users\ameli\Documents\Inventor Interoperability\Github\Samorzad_Winietki\tan-pearl.ttf")
+OUTPUT_FOLDER = Path(r"C:\Users\ameli\Documents\Inventor Interoperability\Github\Samorzad_Winietki")
 
-# Rejestracja czcionki
-pdfmetrics.registerFont(TTFont('TanPearl', font_path))
+GOLD_COLOR = CMYKColor(0.05, 0.00, 0.48, 0.00)
+PDF_WIDTH, PDF_HEIGHT = 96 * 2.83465, 106 * 2.83465  # Konwersja mm na punkty
+FONT_SIZE = 15
+FONT_NAME = "TanPearl"
 
-# Kolor tekstu
-gold_color = CMYKColor(0.05, 0.00, 0.48, 0.00)          # Tu wpisać kolor tekstu
 
-# Wymiary PDF w mm
-x = 96                                                                             # Tu wpisać wymiary w mm
-y = 106
+def setup_font() -> None:
+    pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_PATH))
 
-# Zamiana jednostek
-pdf_width = x * 2.83465
-pdf_height = y * 2.83465
 
-# Ustawienia tekstu
-font_size = 15                                                                      # Tu wpisz rozmiar tekstu
-font = "TanPearl"                                                                   # Tu wpisz nazwę czcionki
+def create_pdf(name: str, surname: str, output_path: Path) -> None:
+    temp_pdf = output_path.with_name(f'temp_{output_path.stem}.pdf')
 
-# Tworzymy folder na pliki PDF
-os.makedirs(output_folder, exist_ok=True)
+    c = canvas.Canvas(str(temp_pdf), pagesize=(PDF_WIDTH, PDF_HEIGHT))
+    c.setFont(FONT_NAME, FONT_SIZE)
+    c.setFillColor(GOLD_COLOR)
 
-# Otwórz plik CSV i generuj PDF dla każdej osoby
-with open(csv_file, mode='r', newline='', encoding='utf-8') as file:
-    reader = csv.reader(file)
-    next(reader, None)  # Pomijamy nagłówek
+    text = f"{name} {surname}"
+    text_width = c.stringWidth(text, FONT_NAME, FONT_SIZE)
+    x = (PDF_WIDTH - text_width) / 2
+    y = (PDF_HEIGHT / 4) + 7
 
-    for i, row in enumerate(reader):
+    c.drawString(x, y, text)
+    c.save()
+
+    return temp_pdf
+
+
+def merge_pdfs(background: Path, content: Path, output: Path) -> None:
+    with open(background, "rb") as bg_file, open(content, "rb") as content_file, open(output, "wb") as output_file:
+        background_reader = PdfReader(bg_file)
+        content_reader = PdfReader(content_file)
+
+        output_writer = PdfWriter()
+        background_page = background_reader.pages[0]
+        content_page = content_reader.pages[0]
+        background_page.merge_page(content_page)
+        output_writer.add_page(background_page)
+        output_writer.write(output_file)
+
+
+def process_csv(csv_file: Path) -> List[Tuple[str, str]]:
+    data = []
+    try:
+        with open(csv_file, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            next(reader, None)  # Pomijamy nagłówek
+            for row in reader:
+                if len(row) >= 2:
+                    name, surname = row[0].strip(), row[1].strip()
+                    if name and surname:
+                        data.append((name, surname))
+                    else:
+                        print(f"Pominięto niepełne dane: {row}")
+    except FileNotFoundError:
+        print(f"Nie znaleziono pliku CSV: {csv_file}")
+    except Exception as e:
+        print(f"Wystąpił błąd podczas odczytu pliku CSV: {e}")
+    return data
+
+
+def main():
+    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+    setup_font()
+
+    for i, (name, surname) in enumerate(process_csv(CSV_FILE), start=1):
+        output_pdf = OUTPUT_FOLDER / f'winietka_{i}_{name}_{surname}.pdf'
         try:
-            imie = row[0].strip().replace(" ", "")
-            nazwisko = row[1].strip().replace(" ", "")
-
-            if not imie or not nazwisko:
-                print(f"Pominięto pustą wartość w wierszu {i + 1}")
-                continue
-
-            pdf_file = os.path.join(output_folder, f'winietka_{i + 1}_{imie}_{nazwisko}.pdf')
-            temp_pdf = os.path.join(output_folder, f'temp_{i + 1}.pdf')
-
-            c = canvas.Canvas(temp_pdf, pagesize=(pdf_width, pdf_height))
-
-            # Ustawienia czcionki i koloru
-            c.setFont(font, font_size)
-            c.setFillColor(gold_color)
-
-            # Tekst do wyśrodkowania
-            text = f"{imie} {nazwisko}"
-            text_width = c.stringWidth(text, font, font_size)
-            x = (pdf_width - text_width) / 2
-            y = (pdf_height / 4) + 7
-
-            # Dodanie tekstu do PDF
-            c.drawString(x, y, text)
-            c.save()
-
-            # Połączenie tła i tekstu
-            background_reader = PdfReader(background_pdf)
-            temp_reader = PdfReader(temp_pdf)
-
-            output_pdf = PdfWriter()
-            background_page = background_reader.pages[0]
-            temp_page = temp_reader.pages[0]
-            background_page.merge_page(temp_page)
-            output_pdf.add_page(background_page)
-
-            with open(pdf_file, "wb") as outputStream:
-                output_pdf.write(outputStream)
-
-            os.remove(temp_pdf)
-
-            print(f"Wygenerowano: {pdf_file}")
+            temp_pdf = create_pdf(name, surname, output_pdf)
+            merge_pdfs(BACKGROUND_PDF, temp_pdf, output_pdf)
+            temp_pdf.unlink()  # Usuwamy tymczasowy plik
+            print(f"Wygenerowano: {output_pdf}")
         except Exception as e:
-            print(f"Błąd przy wierszu {i + 1}: {e}")
+            print(f"Błąd przy generowaniu winietki dla {name} {surname}: {e}")
 
-print(" Wszystkie pliki zostały wygenerowane!")
+    print("Wszystkie pliki zostały wygenerowane!")
+
+
+if __name__ == "__main__":
+    main()
